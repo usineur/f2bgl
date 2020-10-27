@@ -11,7 +11,7 @@
 #include "util.h"
 #ifdef __SWITCH__
 #include <switch.h>
-#include "glad.h"
+#include <GL/glew.h>
 #endif
 
 const char *g_caption = "Fade2Black/OpenGL";
@@ -357,7 +357,11 @@ int main(int argc, char *argv[]) {
 	}
 	SDL_GLContext glcontext = SDL_GL_CreateContext(window);
 #ifdef __SWITCH__
-	gladLoadGLLoader(SDL_GL_GetProcAddress);
+	GLenum err = glewInit();
+	if (err != GLEW_OK) {
+		fprintf(stderr, "glewInit() failed: %s\n", glewGetErrorString(err));
+		return -1;
+	}
 #else
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 #endif

@@ -6,7 +6,7 @@ endif()
 
 project(f2bgl)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__SWITCH__ -O2 -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__SWITCH__ -DGLEW_NO_GLU -O2 -g")
 
 include_directories(
   ${DEVKITPRO}/portlibs/switch/include/SDL2
@@ -24,6 +24,7 @@ add_executable(${CMAKE_PROJECT_NAME}.elf
 
 target_link_libraries(${CMAKE_PROJECT_NAME}.elf
   SDL2
+  GLEW
   EGL
   glapi
   drm_nouveau

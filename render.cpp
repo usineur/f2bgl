@@ -6,7 +6,7 @@
 #ifdef USE_GLES
 #include <GLES/gl.h>
 #elif __SWITCH__
-#include "glad.h"
+#include <GL/glew.h>
 #else
 #include <SDL_opengl.h>
 #endif
