@@ -65,8 +65,11 @@ target_link_libraries(${VITA_APPNAME}
   SDL2
   vita2d
   vitaGL
+  vitashark
+  mathneon
   WildMidi
   z
+  SceAppMgr_stub
   SceAppUtil_stub
   SceAudio_stub
   SceCommonDialog_stub
@@ -75,6 +78,7 @@ target_link_libraries(${VITA_APPNAME}
   SceGxm_stub
   SceHid_stub
   ScePower_stub
+  SceShaccCg_stub
   SceSysmodule_stub
   SceTouch_stub
 )
