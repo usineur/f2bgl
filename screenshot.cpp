@@ -144,7 +144,18 @@ uint8_t *loadTGA(const char *filepath, int *w, int *h) {
 			// This is not a generic TGA loader and only support decoding the output of saveTGA
 			if (header[2] == kTgaImageTypeRunLengthEncodedTrueColor) {
 				int offset = 0;
+#ifdef __SWITCH__
+				uint8_t *buf = (uint8_t *)malloc(bufferSize);
+				fileRead(f, buf, bufferSize);
+				int i = 0;
+#endif
 				while (offset < bufferSize) {
+#ifdef __SWITCH__
+					const int count = (buf[i++] & 0x7F) + 1;
+					const int b = buf[i++];
+					const int g = buf[i++];
+					const int r = buf[i++];
+#else
 					const int count = (fileReadByte(f) & 0x7F) + 1;
 					if (fileEof(f)) {
 						warning("Incomplete TGA file '%s' offset %d size %d", filepath, offset, bufferSize);
@@ -153,6 +164,7 @@ uint8_t *loadTGA(const char *filepath, int *w, int *h) {
 					const int b = fileReadByte(f);
 					const int g = fileReadByte(f);
 					const int r = fileReadByte(f);
+#endif
 					for (int i = 0; i < count && offset < bufferSize; ++i) {
 						buffer[offset++] = r;
 						buffer[offset++] = g;
@@ -162,6 +174,9 @@ uint8_t *loadTGA(const char *filepath, int *w, int *h) {
 				}
 				*w = hdrW;
 				*h = hdrH;
+#ifdef __SWITCH__
+				free(buf);
+#endif
 			}
 		}
 		fileClose(f);
