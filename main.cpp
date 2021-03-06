@@ -18,15 +18,15 @@ const char *g_caption = "Fade2Black/OpenGL";
 
 static const char *kIconBmp = "icon.bmp";
 
-static const float kAspectRatio = 4 / 3.;
+static float gAspectRatio;
 
 #ifdef __SWITCH__
 static const int kDefaultW = 1280;
+static const int kDefaultH = 720;
 #else
 static const int kDefaultW = 640;
+static const int kDefaultH = 480;
 #endif
-static const int kDefaultH = kDefaultW / kAspectRatio;
-//static const int kDefaultH = kDefaultW / (16 / 9.);
 
 static int gWindowW = kDefaultW;
 static int gWindowH = kDefaultH;
@@ -281,8 +281,8 @@ static void setupAudio(GameStub *stub) {
 static void setAspectRatio(int w, int h) {
 	const float currentAspectRatio = w / (float)h;
 	// pillar box
-	if (currentAspectRatio > kAspectRatio) {
-		const float inset = 1. - kAspectRatio / currentAspectRatio;
+	if (currentAspectRatio > gAspectRatio) {
+		const float inset = 1. - gAspectRatio / currentAspectRatio;
 		_aspectRatio[0] = inset / 2;
 		_aspectRatio[1] = 0.;
 		_aspectRatio[2] = 1. - inset;
@@ -290,8 +290,8 @@ static void setAspectRatio(int w, int h) {
 		return;
 	}
 	// letter box
-	if (currentAspectRatio < kAspectRatio) {
-		const float inset = 1. - currentAspectRatio / kAspectRatio;
+	if (currentAspectRatio < gAspectRatio) {
+		const float inset = 1. - currentAspectRatio / gAspectRatio;
 		_aspectRatio[0] = 0.;
 		_aspectRatio[1] = inset / 2;
 		_aspectRatio[2] = 1.;
@@ -321,19 +321,26 @@ int main(int argc, char *argv[]) {
 	if (ret != 0) {
 		return ret;
 	}
-	const int displayMode = stub->getDisplayMode();
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC);
 	SDL_ShowCursor(stub->hasCursor() ? SDL_ENABLE : SDL_DISABLE);
+	bool widescreen = false;
+	SDL_DisplayMode dm;
+	if (SDL_GetDesktopDisplayMode(0, &dm) == 0 && 0) {
+		widescreen = ((dm.w / (float)dm.h) >= (16 / 9.));
+	}
+	const int displayMode = stub->getDisplayMode();
+	gAspectRatio = stub->getAspectRatio(widescreen);
+	gWindowH = gWindowW / gAspectRatio;
 #ifdef __SWITCH__
 	int flags = SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN;
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 #else
 	int flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
-	if (displayMode != kDisplayModeWindowed) {
+#endif
+	if (displayMode != kDisplayModeWindow) {
 		flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 	}
-#endif
 	SDL_Window *window = SDL_CreateWindow(g_caption, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, gWindowW, gWindowH, flags);
 	if (!window) {
 		return -1;
@@ -348,13 +355,11 @@ int main(int argc, char *argv[]) {
 	_aspectRatio[1] = 0.;
 	_aspectRatio[2] = 1.;
 	_aspectRatio[3] = 1.;
-	if (displayMode != kDisplayModeFullscreenStretch) {
 #ifdef __SWITCH__
-		setAspectRatio(4, 3);
+	setAspectRatio(4, 3);
 #else
-		setAspectRatio(gWindowW, gWindowH);
+	setAspectRatio(gWindowW, gWindowH);
 #endif
-	}
 	SDL_GLContext glcontext = SDL_GL_CreateContext(window);
 #ifdef __SWITCH__
 	GLenum err = glewInit();

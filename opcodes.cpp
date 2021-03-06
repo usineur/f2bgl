@@ -265,7 +265,7 @@ int Game::op_playSound(int argc, int32_t *argv) {
 
 		// The flags are not correctly masked in the original engine.
 		// eg. masking 0x7FFFF instead of 0x7FFF. The sound system uses
-		// bits 1 and 2, so this was clearly an typo.
+		// bits 1 and 2, so this was clearly a typo.
 		//
 		//  cseg01:00038F01   mov     cl, byte ptr [ebp+flags+1]
 		//  cseg01:00038F04   test    cl, 80h
@@ -1320,7 +1320,7 @@ int Game::op_clearTarget(int argc, int32_t *argv) {
 int Game::op_playCutscene(int argc, int32_t *argv) {
 	assert(argc == 1);
 	debug(kDebug_OPCODES, "Game::op_playCutscene() [%d]", argv[0]);
-	_cut->queue(argv[0]);
+	_cut.queue(argv[0]);
 	return -1;
 }
 

@@ -12,15 +12,8 @@
 #include "xmiplayer.h"
 
 Game::Game(Render *render, const GameParams *params)
-	: _snd(&_res), _render(render), _params(*params) {
+	: _snd(&_res), _cut(render, this, &_snd), _render(render), _params(*params) {
 
-	if (g_hasPsx) {
-		_cut = new CutscenePsx(_render, this, &_snd);
-	} else {
-		_cut = new Cutscene(_render, this, &_snd);
-	}
-
-	_cheats = kCheatAutoReloadGun | kCheatActivateButtonToShoot | kCheatStepWithUpDownInShooting;
 	_gameStateMsg = 0;
 
 	memset(&_drawCharBuf, 0, sizeof(_drawCharBuf));
@@ -58,7 +51,6 @@ Game::Game(Render *render, const GameParams *params)
 Game::~Game() {
 	finiIcons();
 	freeLevelData();
-	delete _cut;
 }
 
 void Game::clearGlobalData() {
@@ -96,8 +88,8 @@ void Game::clearGlobalData() {
 }
 
 void Game::clearLevelData() {
-	_cut->_numToPlayCounter = -1;
-	_cut->_numToPlay = -1;
+	_cut._numToPlayCounter = -1;
+	_cut._numToPlay = -1;
 
 	_fixedViewpoint = false;
 	_xPosObserverPrev = _xPosObserver = 0;
@@ -150,6 +142,7 @@ void Game::clearLevelData() {
 
 	freeLevelData();
 	if (g_hasPsx) {
+		_res.unloadLevelDataPsx(kResTypePsx_DIN);
 		_res.unloadLevelDataPsx(kResTypePsx_LEV);
 		_res.unloadLevelDataPsx(kResTypePsx_SON);
 	}
@@ -1212,6 +1205,7 @@ void Game::initLevel(bool keepInventoryObjects) {
 	_varsTable[kVarConradLife] = 2000;
 	_res.loadLevelData(_level);
 	if (g_hasPsx) {
+		_res.loadLevelDataPsx(_level, kResTypePsx_DIN);
 		_res.loadLevelDataPsx(_level, kResTypePsx_LEV);
 		_res.loadLevelDataPsx(_level, kResTypePsx_SON);
 	}
@@ -1712,16 +1706,43 @@ static const Game::OpcodeProc _opcodeTable[kOpcodesCount] = {
 	&Game::op_stopSound
 };
 
-int Game::executeObjectScriptOpcode(GameObject *o, uint32_t op, const uint8_t *data) {
+int Game::executeObjectScriptOpcode(GameObject *o, uint32_t op, const uint8_t *&data) {
 	int32_t val, argv[8];
 
-	debug(kDebug_GAME, "Game::executeObjectScriptOpcode() o %p op %d", o, op);
+	debug(kDebug_GAME, "Game::executeObjectScriptOpcode() o %p op 0x%x", o, op);
+	uint32_t mask;
+	if (_res._psxCmdData) {
+		mask = op >> 8;
+		op &= 0xFF;
+	} else {
+		mask = READ_LE_UINT32(data); data += 4;
+	}
 	assert(op < kOpcodesCount);
 	const int argc = g_isDemo ? _opcodeSize_demo[op] : _opcodeSize[op];
 	assert(argc <= 8);
-	uint32_t mask = READ_LE_UINT32(data); data += 4;
+	uint32_t type = 0;
+	if (_res._psxCmdData && argc >= 2) {
+		type = READ_LE_UINT16(data); data += 2;
+	}
 	for (int i = 0; i < argc; ++i) {
-		val = READ_LE_UINT32(data); data += 4;
+		if (_res._psxCmdData && argc >= 2) {
+			switch ((type >> (2 * i)) & 3) {
+			case 1:
+				val = (int16_t)READ_LE_UINT16(data); data += 2;
+				break;
+			case 2:
+				val = READ_LE_UINT16(data) << 16; data += 2;
+				break;
+			case 3:
+				val = READ_LE_UINT32(data); data += 4;
+				break;
+			default:
+				val = 0;
+				break;
+			}
+		} else {
+			val = READ_LE_UINT32(data); data += 4;
+		}
 		if (mask & (1 << i)) {
 			val = getObjectScriptParam(o, val);
 		}
@@ -1854,8 +1875,13 @@ int Game::executeObjectScript(GameObject *o) {
 			const uint8_t *scriptData = _res.getCmdData(scriptCmdNum);
 			int scriptRet = 1;
 			while (scriptRet) {
-				uint32_t op = READ_LE_UINT32(scriptData); scriptData += 4;
-				if (op == 0xFFFFFFFF) {
+				int32_t op;
+				if (_res._psxCmdData) {
+					op = (int16_t)READ_LE_UINT16(scriptData); scriptData += 2;
+				} else {
+					op = READ_LE_UINT32(scriptData); scriptData += 4;
+				}
+				if (op == -1) {
 					// end of conditions sequence
 					break;
 				}
@@ -1868,20 +1894,21 @@ int Game::executeObjectScript(GameObject *o) {
 				if (negateScriptRet) {
 					scriptRet = ~scriptRet;
 				}
-				const int count = g_isDemo ? _opcodeSize_demo[op] : _opcodeSize[op];
-				scriptData += count * 4 + 4;
 			}
 			if (scriptRet) {
 				stopScript = 1;
 				while (1) {
-					uint32_t op = READ_LE_UINT32(scriptData); scriptData += 4;
-					if (op == 0xFFFFFFFE) {
+					int32_t op;
+					if (_res._psxCmdData) {
+						op = (int16_t)READ_LE_UINT16(scriptData); scriptData += 2;
+					} else {
+						op = READ_LE_UINT32(scriptData); scriptData += 4;
+					}
+					if (op == -2) {
 						// end of statements sequence
 						break;
 					}
 					executeObjectScriptOpcode(_currentObject, op, scriptData);
-					const int count = g_isDemo ? _opcodeSize_demo[op] : _opcodeSize[op];
-					scriptData += count * 4 + 4;
 				}
 			}
 			if (!stopScript) {
@@ -2596,7 +2623,7 @@ void Game::doTick() {
 	addObjectsToScene();
 	updateObjects();
 	++_ticks;
-	if ((_cheats & kCheatLifeCounter) != 0) {
+	if ((_params.cheats & kCheatLifeCounter) != 0) {
 		_objectsPtrTable[kObjPtrConrad]->specialData[1][18] = _varsTable[kVarConradLife];
 	}
 	runObject(_objectsPtrTable[kObjPtrWorld]->o_child);
@@ -2682,8 +2709,8 @@ void Game::doTick() {
 			op_addObjectMessage(2, argv);
 			_gameStateMsg = 0;
 		}
-		if (_cut->_numToPlayCounter > 0) {
-			--_cut->_numToPlayCounter;
+		if (_cut._numToPlayCounter > 0) {
+			--_cut._numToPlayCounter;
 		}
 		if (_changeLevel) {
 			if (g_hasPsx) {
@@ -4373,7 +4400,7 @@ bool Game::sendMessage(int msg, int16_t destObjKey) {
 							_conradHit = 2;
 						}
 					}
-					if ((_cheats & kCheatLifeCounter) == 0) {
+					if ((_params.cheats & kCheatLifeCounter) == 0) {
 						if (o == _objectsPtrTable[kObjPtrConrad] && msg == 58 && o->specialData[1][18] <= 0) {
 							playDeathCutscene(_currentObject->objKey);
 							_endGame = true;
@@ -4532,89 +4559,89 @@ void Game::getCutsceneMessages(int num) {
 void Game::playDeathCutscene(int objKey) {
 	GameObject *o = getObjectByKey(objKey);
 	if (o->specialData[1][21] == 0x40000) {
-		_cut->queue(48);
+		_cut.queue(48);
 		_level = kLevelGameOver;
 	} else if (_level == 6) {
-		_cut->queue(9);
+		_cut.queue(9);
 	} else if (_level == 12) {
-		_cut->queue(33);
+		_cut.queue(33);
 	} else if (o->specialData[1][21] == 0x1000000) {
-		_cut->queue(1, 4);
+		_cut.queue(1, 4);
 	} else if (o->specialData[1][21] == 8) {
 		switch (o->specialData[1][22]) {
 		case 0x1:
 			o = getObjectByKey(o->specialData[1][9]);
 			if (o->specialData[1][22] != 0x4000) {
-				_cut->queue(1, 4);
+				_cut.queue(1, 4);
 			} else {
-				_cut->queue(6, 4);
+				_cut.queue(6, 4);
 			}
 			break;
 		case 0x2:
 		case 0x4000:
-			_cut->queue(2, 4);
+			_cut.queue(2, 4);
 			break;
 		case 0x200:
-			_cut->queue(4);
+			_cut.queue(4);
 			break;
 		default:
-			_cut->queue(12);
+			_cut.queue(12);
 			break;
 		}
 	} else if (o->specialData[1][21] == 16) {
 		switch (o->specialData[1][22]) {
 		case 0x4:
-			_cut->queue(0);
+			_cut.queue(0);
 			break;
 		case 0x20:
-			_cut->queue(3);
+			_cut.queue(3);
 			break;
 		case 0x80000:
-			_cut->queue(2);
+			_cut.queue(2);
 			break;
 		case 0x100000:
-			_cut->queue(17);
+			_cut.queue(17);
 			break;
 		case 0x200000:
-			_cut->queue(7);
+			_cut.queue(7);
 			break;
 		case 0x1000000:
-			_cut->queue(40);
+			_cut.queue(40);
 			break;
 		case 0x4000000:
-			_cut->queue(11);
+			_cut.queue(11);
 			break;
 		case 0x800000:
-			_cut->queue(42);
+			_cut.queue(42);
 			break;
 		default:
-			_cut->queue(12);
+			_cut.queue(12);
 			break;
 		}
 	} else if (o->specialData[1][21] == 0x20000) {
-		_cut->queue(2, 4);
+		_cut.queue(2, 4);
 	} else if (o->specialData[1][21] == 0x200000) {
-		_cut->queue(41);
+		_cut.queue(41);
 	} else if (o->specialData[1][21] == 0x10000) {
-		_cut->queue(10);
+		_cut.queue(10);
 	} else if (o->specialData[1][21] == 0x100) {
-		_cut->queue(5);
+		_cut.queue(5);
 	} else if (o->specialData[1][21] == 0x800) {
-		_cut->queue(17);
+		_cut.queue(17);
 	} else if (o->specialData[1][21] == 0x800000) {
-		_cut->queue(49);
+		_cut.queue(49);
 	} else if (o->specialData[1][21] == 0x100000) {
-		_cut->queue(34);
+		_cut.queue(34);
 	} else if (o->specialData[1][21] == 0x8000) {
-		_cut->queue(8, 4);
+		_cut.queue(8, 4);
 	} else if (o->specialData[1][21] == 0x80000) {
-		_cut->queue(38, 4);
+		_cut.queue(38, 4);
 	} else if (o->specialData[1][21] == 0x2000000) {
-		_cut->queue(3);
+		_cut.queue(3);
 	} else {
-		_cut->queue(12);
+		_cut.queue(12);
 	}
-	debug(kDebug_GAME, "Game::playDeathCutscene() queue playback num %d counter %d", _cut->_numToPlay, _cut->_numToPlayCounter);
+	debug(kDebug_GAME, "Game::playDeathCutscene() queue playback num %d counter %d", _cut._numToPlay, _cut._numToPlayCounter);
 }
 
 void Game::displayTarget(int cx, int cy) {
@@ -4708,14 +4735,14 @@ void Game::drawSprite(int x, int y, int sprKey) {
 }
 
 bool Game::updateCutscene(uint32_t ticks) {
-	bool ret = _cut->update(ticks);
+	bool ret = _cut.update(ticks);
 	if (ret) {
-		_cut->_interrupted = inp.spaceKey || inp.enterKey || inp.ctrlKey;
+		_cut._interrupted = inp.spaceKey || inp.enterKey || inp.ctrlKey;
 		const bool stop = inp.escapeKey || (!inp.pointers[0][0].down && inp.pointers[0][1].down);
-		ret = !_cut->_interrupted && !stop;
+		ret = !_cut._interrupted && !stop;
 	}
 	if (!ret) {
-		_cut->unload();
+		_cut.unload();
 	}
 	return ret;
 }

@@ -19,7 +19,8 @@ static const int kHeaderSize = 96;
 // 27 - add voice datafiles (messages offset differ on the voice for SP and IT) and remove ResMessageDescription
 // 28 - persist GameFollowingObject
 // 29 - persist ResMessageDescription.duration
-static const int kSaveVersion = 29;
+// 30 - persist ResMessageDescription.xPos .yPos
+static const int kSaveVersion = 30;
 
 static const char *kLevels[] = { "1", "2a", "2b", "2c", "3", "4a", "4b", "4c", "5a", "5b", "5c", "6a", "6b" };
 
@@ -465,8 +466,8 @@ static void persistOption(File *fp, Game &g) {
 	persist<M>(fp, g._ticks);
 	pad<M>(fp, sizeof(uint32_t));
 	persist<M>(fp, g._rnd._randSeed);
-	for (int i = 0; i < ARRAYSIZE(g._cut->_playedTable); ++i) {
-		persist<M>(fp, g._cut->_playedTable[i]);
+	for (int i = 0; i < ARRAYSIZE(g._cut._playedTable); ++i) {
+		persist<M>(fp, g._cut._playedTable[i]);
 	}
 }
 
@@ -483,9 +484,15 @@ static void persistGamePlayerMessage(File *fp, Game &g, GamePlayerMessage &m) {
 	persist<M>(fp, m.yPos);
 	persist<M>(fp, m.visible);
 	persist<M>(fp, m.crc);
-	g.getMessage(m.objKey, m.value, &m.desc);
+	if (M == kModeLoad) {
+		g.getMessage(m.objKey, m.value, &m.desc);
+	}
 	if (_saveVersion >= 29) {
 		persist<M>(fp, m.desc.duration);
+	}
+	if (_saveVersion >= 30) {
+		persist<M>(fp, m.desc.xPos);
+		persist<M>(fp, m.desc.yPos);
 	}
 }
 

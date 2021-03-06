@@ -8,7 +8,6 @@
 
 #include "util.h"
 #include "cutscene.h"
-#include "cutscenepsx.h"
 #include "resource.h"
 #include "sound.h"
 #include "spritecache.h"
@@ -146,7 +145,7 @@ enum {
 	kCheatActivateButtonToShoot = 1 << 2,
 	// control tweak #3 - pressing 'up' or 'down' when shooting allows to do back and foot steps, this avoids using the 'pageup' and 'pagedown' keys
 	kCheatStepWithUpDownInShooting = 1 << 3,
-	// control tweak #4 - front and back steps when pressing 'ctrl' with 'up' and 'down' keys, this avois using the 'pageup' and 'pagedown' keys
+	// control tweak #4 - front and back steps when pressing 'ctrl' with 'up' and 'down' keys, this avoids using the 'pageup' and 'pagedown' keys
 	kCheatShootButtonToStep = 1 << 4,
 };
 
@@ -436,13 +435,14 @@ struct DrawNumber {
 struct Render;
 
 struct GameParams {
-	GameParams() : playDemo(false), levelNum(0), subtitles(false), sf2(0), mouseMode(false), touchMode(false) {}
+	GameParams() : playDemo(false), levelNum(0), subtitles(false), sf2(0), mouseMode(false), touchMode(false), cheats(0) {}
 	bool playDemo;
 	int levelNum;
 	bool subtitles;
 	const char *sf2;
 	bool mouseMode;
 	bool touchMode;
+	uint32_t cheats;
 };
 
 struct Game {
@@ -453,13 +453,12 @@ struct Game {
 	typedef int (Game::*RayCastCallbackType)(GameObject *o, CellMap *cell, int x, int z);
 
 	Resource _res;
-	Cutscene *_cut;
 	Sound _snd;
+	Cutscene _cut;
 	Render *_render;
 	GameParams _params;
 	SpriteCache _spriteCache;
 	Random _rnd, _rnd2;
-	int _cheats;
 	int _gameStateMsg;
 	bool _musicPaused;
 
@@ -679,7 +678,7 @@ struct Game {
 	void setObjectData(GameObject *o, int field, int32_t value);
 	int32_t getObjectData(GameObject *o, int field);
 	int32_t getObjectScriptParam(GameObject *o, int field);
-	int executeObjectScriptOpcode(GameObject *o, uint32_t op, const uint8_t *data);
+	int executeObjectScriptOpcode(GameObject *o, uint32_t op, const uint8_t *&data);
 	uint8_t *getStartScriptAnim();
 	uint8_t *getNextScriptAnim();
 	int executeObjectScript(GameObject *o);

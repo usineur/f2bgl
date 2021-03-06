@@ -50,10 +50,13 @@ Resource::Resource() {
 	_textIndexesTable = 0;
 	_vrmLoadingBitmap = 0;
 	_vagOffsetsTableSize = 0;
+	memset(_dinOffsetsTable, 0, sizeof(_dinOffsetsTable));
+	_fileDin = 0;
 	memset(_levOffsetsTable, 0, sizeof(_levOffsetsTable));
 	_fileLev = 0;
 	memset(_sonOffsetsTable, 0, sizeof(_sonOffsetsTable));
 	_fileSon = 0;
+	_psxCmdData = false;
 }
 
 Resource::~Resource() {
@@ -270,7 +273,7 @@ void Resource::loadINI(File *fp, int dataSize) {
 	}
 	assert(levelsCount == kLevelDescriptionsCount);
 	for (int l = 0; l < levelsCount; ++l) {
-		int level = -1;
+		int level = l;
 		if ((iniDataToken = stringNextToken(&iniDataBuf)) && *iniDataToken) {
 			level = strtol(iniDataToken, 0, 10);
 		}
@@ -328,7 +331,7 @@ void Resource::loadINM(int levelNum) {
 	File *fp = 0;
 	int dataSize = 0;
 	if (kLoadPsxData && g_hasPsx) {
-		snprintf(filename, sizeof(filename), "level%d%c.lev", levelNum + 1, _languagesPsx[fileLanguage()]);
+		snprintf(filename, sizeof(filename), "level%d%c.inm", levelNum + 1, _languagesPsx[fileLanguage()]);
 		fp = fileOpenPsx(filename, kFileType_PSX_LEVELDATA, levelNum + 1);
 		if (!fp) {
 			error("Resource::loadINM() Unable to open '%s'", filename);
@@ -957,6 +960,8 @@ static const struct {
 	const char *ext;
 	int type;
 } _resTreeTablePsx[] = {
+	{ "ANI", kResType_ANI },
+	{ "STM", kResType_STM },
 	{ "PAL", kResType_PAL },
 	{ "SPR", kResType_SPR },
 	{ "F3D", kResType_F3D },
@@ -965,9 +970,18 @@ static const struct {
 
 void Resource::loadLevelDataPsx(int level, int resType) {
 	switch (resType) {
+	case kResTypePsx_DIN: {
+			char name[16];
+			snprintf(name, sizeof(name), "level%d.din", level + 1);
+			_fileDin = fileOpenPsx(name, kFileType_PSX_LEVELDATA, level + 1);
+			if (_fileDin) {
+				readDataOffsetsTable(_fileDin, kResOffsetType_DIN, _dinOffsetsTable, kResPsxDinOffsetsTableSize);
+			}
+		}
+		break;
 	case kResTypePsx_DTT: {
 			char name[16];
-			snprintf(name, sizeof(name), "level%d%c.lev", level + 1, _languagesPsx[fileLanguage()]);
+			snprintf(name, sizeof(name), "level%d%c.dtt", level + 1, _languagesPsx[fileLanguage()]);
 			File *fp = fileOpenPsx(name, kFileType_PSX_LEVELDATA, level + 1);
 			if (fp) {
 				const uint32_t dataSize = fileSize(fp);
@@ -981,7 +995,7 @@ void Resource::loadLevelDataPsx(int level, int resType) {
 			snprintf(name, sizeof(name), "level%d.lev", level + 1);
 			_fileLev = fileOpenPsx(name, kFileType_PSX_LEVELDATA, level + 1);
 			if (_fileLev) {
-				readDataOffsetsTable(_fileLev, kResOffsetType_LEV, _levOffsetsTable);
+				readDataOffsetsTable(_fileLev, kResOffsetType_LEV, _levOffsetsTable, kResPsxLevOffsetsTableSize);
 				if (kLoadPsxData) {
 					for (uint32_t i = 0; i < ARRAYSIZE(_resLoadDataTablePsx); ++i) {
 						const uint32_t dataSize = seekDataPsx(_resLoadDataTablePsx[i].ext, _fileLev, kResOffsetType_LEV);
@@ -991,6 +1005,7 @@ void Resource::loadLevelDataPsx(int level, int resType) {
 						const uint32_t dataSize = seekDataPsx(_resTreeTablePsx[i].ext, _fileLev, kResOffsetType_LEV);
 						loadTreePsx(_fileLev, dataSize, _resTreeTablePsx[i].type);
 					}
+					_psxCmdData = true;
 				}
 			}
 		}
@@ -1000,7 +1015,7 @@ void Resource::loadLevelDataPsx(int level, int resType) {
 			snprintf(name, sizeof(name), "level%d.son", level + 1);
 			_fileSon = fileOpenPsx(name, kFileType_PSX_LEVELDATA, level + 1);
 			if (_fileSon) {
-				readDataOffsetsTable(_fileSon, kResOffsetType_SON, _sonOffsetsTable);
+				readDataOffsetsTable(_fileSon, kResOffsetType_SON, _sonOffsetsTable, kResPsxSonOffsetsTableSize);
 				loadVAB(_fileSon);
 			}
 		}
@@ -1020,6 +1035,13 @@ void Resource::loadLevelDataPsx(int level, int resType) {
 
 void Resource::unloadLevelDataPsx(int resType) {
 	switch (resType) {
+	case kResTypePsx_DIN:
+		memset(_dinOffsetsTable, 0, sizeof(_dinOffsetsTable));
+		if (_fileDin) {
+			fileClose(_fileDin);
+			_fileDin = 0;
+		}
+		break;
 	case kResTypePsx_LEV:
 		memset(_levOffsetsTable, 0, sizeof(_levOffsetsTable));
 		if (_fileLev) {
@@ -1044,9 +1066,13 @@ void Resource::unloadLevelDataPsx(int resType) {
 	}
 }
 
-void Resource::readDataOffsetsTable(File *fp, int offsetType, ResPsxOffset *offsetsTable) {
+void Resource::readDataOffsetsTable(File *fp, int offsetType, ResPsxOffset *offsetsTable, int offsetsSize) {
 	const int dataSize = fileSize(fp);
 	const int count = fileReadUint32LE(fp);
+	if (count != offsetsSize) {
+		error("Unexpected size %d for Psx offset table type %d", count, offsetType);
+		return;
+	}
 	const uint32_t baseOffset = sizeof(uint32_t) + count * (sizeof(uint32_t) + 4);
 	for (int i = 0; i < count; ++i) {
 		offsetsTable[i].offset = fileReadUint32LE(fp) + baseOffset;
